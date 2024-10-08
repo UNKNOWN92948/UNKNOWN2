@@ -245,7 +245,7 @@ def daily_swipe(access_token, proxies=None, user_agent=None, fast_game=False):
     return response
 
 def task_answer():
-    url = 'https://raw.githubusercontent.com/Dhiraj9619/UNKNOWN2/refs/heads/main/task_answers.json'
+    url = 'https://raw.githubusercontent.com/UNKNOWN92948/UNKNOWN2/refs/heads/main/task_answers.json'
     try:
         response = requests.get(url)
         response.raise_for_status()  # Raise an error for HTTP errors
