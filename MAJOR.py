@@ -10,6 +10,7 @@ import aiohttp
 from colorama import init, Fore, Style
 from collections import defaultdict
 import re
+from fake_useragent import UserAgent
 
 # Initialize colorama
 init(autoreset=True)
@@ -57,40 +58,29 @@ def save_account_proxies(account_proxies):
     with open('account_proxies.json', 'w') as file:
         json.dump(account_proxies, file)
 
-def check_and_correct_user_agents_format():
-    user_agents_file = 'user_agents.json'
-    
-    if not os.path.exists(user_agents_file):
-        with open(user_agents_file, 'w') as file:
-            json.dump([], file)
-            log_message(f"Created {user_agents_file}. You can add your User-Agents manually.", Fore.YELLOW)
-        return
-    
+def generate_user_agents(query_ids):
+    ua = UserAgent()
+    user_agents = {decode_query_id(query_id)[1]: ua.random for query_id in query_ids}
+    with open('user_agents.json', 'w') as file:
+        json.dump(user_agents, file)
+    return user_agents
+
+def load_user_agents(query_ids):
+    if not os.path.exists('user_agents.json'):
+        return generate_user_agents(query_ids)
+
     try:
-        with open(user_agents_file, 'r') as file:
+        with open('user_agents.json', 'r') as file:
             user_agents = json.load(file)
 
-        if not isinstance(user_agents, list) or any(not isinstance(agent, str) for agent in user_agents):
-            log_message(f"Incorrect format in {user_agents_file}. Attempting to correct format...", Fore.RED)
-            user_agents = [agent for agent in user_agents if isinstance(agent, str)]
-            with open(user_agents_file, 'w') as file:
-                json.dump(user_agents, file)
-                log_message("Format corrected.", Fore.GREEN)
-    
-    except json.JSONDecodeError:
-        log_message(f"Invalid JSON format in {user_agents_file}. Attempting to correct format...", Fore.RED)
-        with open(user_agents_file, 'w') as file:
-            json.dump([], file)
-            log_message("Format corrected.", Fore.GREEN)
+        # Validate the format
+        if not isinstance(user_agents, dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in user_agents.items()):
+            raise ValueError("Invalid format")
 
-def load_user_agents():
-    user_agents_file = 'user_agents.json'
-    check_and_correct_user_agents_format()
-    
-    with open(user_agents_file, 'r') as file:
-        user_agents = json.load(file)
-
-    return user_agents
+        return user_agents
+    except (json.JSONDecodeError, ValueError):
+        # Clear the file and regenerate if format is incorrect
+        return generate_user_agents(query_ids)
 
 def select_random_proxy(proxies, proxy_usage):
     available_proxies = [proxy for proxy in proxies if proxy_usage[proxy['http']] < 4]
@@ -216,7 +206,9 @@ def daily_hold(access_token, proxies=None, user_agent=None, fast_game=False):
     response = requests.post(url_hold, data=json.dumps(payload), headers=headers_hold, proxies=proxies)
     duration = 2 if fast_game else 60
     if response.status_code == 201:
-        single_line_progress_bar(duration, Fore.GREEN + "Hold Bonus Claim successfully [✓]" + Style.RESET_ALL)
+        data = response.json()
+        award = data.get("award", "Unknown")
+        single_line_progress_bar(duration, Fore.GREEN + f"Hold Bonus Claim: {award} [✓]" + Style.RESET_ALL)
     elif response.status_code == 400:
         log_message("Daily Hold Balance Already Claimed [×]", Fore.RED)
 
@@ -237,7 +229,9 @@ def daily_swipe(access_token, proxies=None, user_agent=None, fast_game=False):
     response = requests.post(url_swipe, data=json.dumps(payload), headers=headers_swipe, proxies=proxies)
     duration = 2 if fast_game else 60
     if response.status_code == 201:
-        single_line_progress_bar(duration, Fore.GREEN + "Swipe Bonus Claim successfully [✓]" + Style.RESET_ALL)
+        data = response.json()
+        award = data.get("award", "Unknown")
+        single_line_progress_bar(duration, Fore.GREEN + f"Swipe Bonus Claim: {award} [✓]" + Style.RESET_ALL)
     elif response.status_code == 400:
         log_message("Daily Swipe Balance Already Claimed [×]", Fore.RED)
 
@@ -432,6 +426,19 @@ def get_starting_account_number(total_accounts):
         except KeyboardInterrupt:
             graceful_exit()
 
+def get_ending_account_number(start_number, total_accounts):
+    while True:
+        try:
+            end_number = int(input(f"Enter the ending account number ({start_number + 1} to {total_accounts}): ").strip())
+            if start_number < end_number <= total_accounts:
+                return end_number
+            else:
+                print(f"Please enter a number between {start_number + 1} and {total_accounts}.")
+        except ValueError:
+            print("Invalid input. Please enter a number.")
+        except KeyboardInterrupt:
+            graceful_exit()
+
 def extract_browser_info(user_agent):
     match = re.search(r'(Chrome/\d+\.\d+\.\d+|Firefox/\d+\.\d+|Safari/\d+\.\d+)', user_agent)
     return match.group(0) if match else "Unknown Browser"
@@ -441,7 +448,7 @@ def process_account(query_id, proxies_list, auto_task, auto_play_game, durov_ena
     log_message(f"-------- Account no {account_index + 1} ---------", Fore.LIGHTBLUE_EX)
     log_message(f"Username: {username}", Fore.WHITE)
     
-    user_agent = user_agents[-1] if user_agents else "Mozilla/5.0"
+    user_agent = user_agents.get(username, "Mozilla/5.0")
     browser_info = extract_browser_info(user_agent)
     log_message(f"Browser: {browser_info}", Fore.MAGENTA)
 
@@ -522,7 +529,6 @@ def process_account(query_id, proxies_list, auto_task, auto_play_game, durov_ena
                                 retries += 1
                                 log_error(f"Retrying... ({retries}/3) for '{task_name}'")
                                 time.sleep(0.5)
-                                clear_terminal()
                                 if retries == 3:
                                     log_error(f"Failed to complete '{task_name}' after 3 attempts.")
 
@@ -575,8 +581,6 @@ def process_account(query_id, proxies_list, auto_task, auto_play_game, durov_ena
 
 def main():
     try:
-        check_and_correct_user_agents_format()
-
         use_proxy = get_yes_no_input("Do you want to use a proxy? (y/n): ")
 
         if use_proxy:
@@ -589,8 +593,6 @@ def main():
             proxies_list = None
             account_proxies = {}
             proxy_usage = defaultdict(int)
-
-        user_agents = load_user_agents()
 
         query_ids = read_query_ids('data.txt')
         
@@ -609,6 +611,10 @@ def main():
         other_tasks_enabled = get_yes_no_input("Enable other tasks? (y/n): ")
 
         starting_account = get_starting_account_number(len(query_ids))
+        ending_account = get_ending_account_number(starting_account, len(query_ids))
+
+        # Load or generate user agents for the required accounts
+        user_agents = load_user_agents(query_ids)
 
         durov_choices = []
         if play_durov:
@@ -627,7 +633,7 @@ def main():
         total_balance = []
         completed_tasks = set()
 
-        for index, query_id in enumerate(query_ids[starting_account:], start=starting_account):
+        for index, query_id in enumerate(query_ids[starting_account:ending_account], start=starting_account):
             process_account(query_id, proxies_list, auto_task, auto_play_game, play_durov, durov_choices, account_proxies, total_balance, user_agents, index, proxy_usage, fast_game, other_tasks_enabled, completed_tasks)
 
         if use_proxy:
