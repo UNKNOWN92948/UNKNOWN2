@@ -166,7 +166,7 @@ def check_user_details(user_id, access_token, proxies=None):
 
     return None
 
-def perform_daily_spin(access_token, proxies=None, user_agent=None, fast_game=False):
+def perform_daily_spin(access_token, proxies=None, user_agent=None, fast_game=True):
     url_spin = "https://major.glados.app/api/roulette/"
     headers_spin = {
         "Accept": "application/json",
@@ -202,7 +202,7 @@ def perform_daily(access_token, proxies=None, user_agent=None):
     response = requests.post(url_daily, headers=headers_daily, proxies=proxies)
     return response
 
-def daily_hold(access_token, proxies=None, user_agent=None, fast_game=False):
+def daily_hold(access_token, proxies=None, user_agent=None, fast_game=True):
     coins = random.randint(900, 950)
     payload = {"coins": coins} 
     url_hold = "https://major.glados.app/api/bonuses/coins/"
@@ -223,7 +223,7 @@ def daily_hold(access_token, proxies=None, user_agent=None, fast_game=False):
     random_delay()
     return response
 
-def daily_swipe(access_token, proxies=None, user_agent=None, fast_game=False):
+def daily_swipe(access_token, proxies=None, user_agent=None, fast_game=True):
     coins = random.randint(1000, 1300)
     payload = {"coins": coins} 
     url_swipe = "https://major.glados.app/api/swipe_coin/"
@@ -522,7 +522,6 @@ def process_account(query_id, proxies_list, auto_task, auto_play_game, durov_ena
                                 retries += 1
                                 log_error(f"Retrying... ({retries}/3) for '{task_name}'")
                                 time.sleep(0.5)
-                                clear_terminal()
                                 if retries == 3:
                                     log_error(f"Failed to complete '{task_name}' after 3 attempts.")
 
@@ -599,10 +598,7 @@ def main():
 
         auto_task = get_yes_no_input("Enable auto daily task? (y/n): ")
         auto_play_game = get_yes_no_input("Enable auto game play? (y/n): ")
-        fast_game = False
-
-        if auto_play_game:
-            fast_game = get_yes_no_input("Enable Fast game play? (y/n): ")
+        fast_game = True  # Fast game play is enabled by default
 
         play_durov = get_yes_no_input("Do you play Durov? (y/n): ")
 
