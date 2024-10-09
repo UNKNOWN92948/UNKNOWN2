@@ -614,7 +614,7 @@ def main():
         if play_durov:
             while True:
                 try:
-                    durov_input = input("Input Durov choices (e.g: 4, 6, 9, 10): ").strip()
+                    durov_input = input("Input Durov choices (e.g: 4,6,9,10): ").strip()
                     choices = durov_input.split(',')
                     if len(choices) == 4:
                         durov_choices = [choice.strip() for choice in choices]
