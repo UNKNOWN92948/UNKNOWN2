@@ -10,6 +10,7 @@ import aiohttp
 from colorama import init, Fore, Style
 from collections import defaultdict
 import re
+from fake_useragent import UserAgent
 
 # Initialize colorama
 init(autoreset=True)
@@ -24,9 +25,8 @@ def art():
  | |_| |  __ _   ___ | | __  ___  _ __ 
  |  _  | / _` | / __|| |/ / / _ \| '__|
  | | | || (_| || (__ |   < |  __/| |   
- \_| |_/ \__,_| \___||_|\_\ \___||_| 
+ \_| |_/ \__,_| \___||_|\_\ \___||_|   
     """ + Style.RESET_ALL)
-
     print(Fore.CYAN + "Major Script Edited by @Dhiraj_9619  DHEERAJ" + Style.RESET_ALL)
     print(Fore.MAGENTA + "==============================================" + Style.RESET_ALL)
 
@@ -57,61 +57,32 @@ def save_account_proxies(account_proxies):
     with open('account_proxies.json', 'w') as file:
         json.dump(account_proxies, file)
 
-def check_and_correct_user_agents_format():
-    user_agents_file = 'user_agents.json'
-    
-    if not os.path.exists(user_agents_file):
-        with open(user_agents_file, 'w') as file:
-            json.dump([], file)
-            log_message(f"Created {user_agents_file}. You can add your User-Agents manually.", Fore.YELLOW)
-        return
-    
+def generate_user_agents(query_ids):
+    ua = UserAgent()
+    user_agents = {decode_query_id(query_id)[1]: ua.random for query_id in query_ids}
+    with open('user_agents.json', 'w') as file:
+        json.dump(user_agents, file)
+    return user_agents
+
+def load_user_agents(query_ids):
+    if not os.path.exists('user_agents.json'):
+        return generate_user_agents(query_ids)
+
     try:
-        with open(user_agents_file, 'r') as file:
+        with open('user_agents.json', 'r') as file:
             user_agents = json.load(file)
 
-        if not isinstance(user_agents, list) or any(not isinstance(agent, str) for agent in user_agents):
-            log_message(f"Incorrect format in {user_agents_file}. Attempting to correct format...", Fore.RED)
-            user_agents = [agent for agent in user_agents if isinstance(agent, str)]
-            with open(user_agents_file, 'w') as file:
-                json.dump(user_agents, file)
-                log_message("Format corrected.", Fore.GREEN)
-    
-    except json.JSONDecodeError:
-        log_message(f"Invalid JSON format in {user_agents_file}. Attempting to correct format...", Fore.RED)
-        with open(user_agents_file, 'w') as file:
-            json.dump([], file)
-            log_message("Format corrected.", Fore.GREEN)
+        if not isinstance(user_agents, dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in user_agents.items()):
+            raise ValueError("Invalid format")
 
-def load_user_agents():
-    user_agents_file = 'user_agents.json'
-    check_and_correct_user_agents_format()
-    
-    with open(user_agents_file, 'r') as file:
-        user_agents = json.load(file)
-
-    return user_agents
+        return user_agents
+    except (json.JSONDecodeError, ValueError):
+        return generate_user_agents(query_ids)
 
 def select_random_proxy(proxies, proxy_usage):
     available_proxies = [proxy for proxy in proxies if proxy_usage[proxy['http']] < 4]
     if available_proxies:
         return random.choice(available_proxies)
-    return None
-
-def is_proxy_working(proxy):
-    test_url = "http://example.com"
-    try:
-        response = requests.get(test_url, proxies={'http': proxy['http'], 'https': proxy['http']}, timeout=5)
-        return response.status_code == 200
-    except requests.RequestException:
-        return False
-
-def bind_working_proxy(proxies_list, account_proxies, query_id, proxy_usage):
-    for proxy in proxies_list:
-        if is_proxy_working(proxy) and proxy_usage[proxy['http']] < 4:
-            account_proxies[query_id] = proxy
-            proxy_usage[proxy['http']] += 1
-            return proxy
     return None
 
 def login(query_id, proxies=None, user_agent=None):
@@ -124,19 +95,14 @@ def login(query_id, proxies=None, user_agent=None):
         "Referer": "https://major.glados.app/"
     }
 
-    for attempt in range(5):  # Retry 5 times
+    while True:
         try:
             response = requests.post(url_login, headers=headers, data=json.dumps(payload), proxies=proxies)
             response.raise_for_status()
             return response.json()
-        except requests.exceptions.ProxyError as e:
-            log_retry(f"Login attempt {attempt + 1} failed for query_id {query_id}: Proxy error - {str(e)}")
-            time.sleep(1)
         except requests.exceptions.RequestException as e:
-            log_retry(f"Login attempt {attempt + 1} failed for query_id {query_id}: Request error - {str(e)}")
-            time.sleep(1)
-
-    return None
+            log_retry(f"Login failed for query_id {query_id}: Network error - {str(e)}. Retrying...")
+            time.sleep(5)
 
 def get_access_token(data):
     return data.get('access_token')
@@ -147,62 +113,23 @@ def check_user_details(user_id, access_token, proxies=None):
         "Accept": "application/json",
         "Content-Type": "application/json",
         "Authorization": f"Bearer {access_token}",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "User-Agent": "Mozilla/5.0",
         "Referer": "https://major.glados.app/"
     }
     
-    try:
-        response = requests.get(url_user_details, headers=headers_user_details, proxies=proxies)
-        response.raise_for_status()
-        
-        data = response.json()
-        rating = data.get("rating", "No rating found")
-        return rating
-    
-    except requests.exceptions.HTTPError as http_err:
-        log_error(f"HTTP error occurred: {http_err} for user {user_id}")
-    except Exception as err:
-        log_error(f"Other error occurred: {err} for user {user_id}")
+    while True:
+        try:
+            response = requests.get(url_user_details, headers=headers_user_details, proxies=proxies)
+            response.raise_for_status()
+            
+            data = response.json()
+            rating = data.get("rating", "No rating found")
+            return rating
+        except requests.exceptions.RequestException as e:
+            log_error(f"Network error occurred while fetching user details for user {user_id}: {str(e)}. Retrying...")
+            time.sleep(5)
 
-    return None
-
-def perform_daily_spin(access_token, proxies=None, user_agent=None, fast_game=True):
-    url_spin = "https://major.glados.app/api/roulette/"
-    headers_spin = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {access_token}",
-        "User-Agent": user_agent,
-        "Referer": "https://major.glados.app/"
-    }
-    response = requests.post(url_spin, headers=headers_spin, proxies=proxies)
-
-    if response.status_code == 201:
-        spin_data = response.json()
-        rating_award = spin_data.get("rating_award")
-        duration = 2 if fast_game else 10
-        single_line_progress_bar(duration, Fore.GREEN + f"Daily Spin Reward: {rating_award} [✓]" + Style.RESET_ALL)
-    elif response.status_code == 400:
-        log_message("Daily Spin Already Claimed [×]", Fore.RED)
-    else:
-        log_error(f"Failed to claim Daily Spin, status code: {response.status_code}")
-
-    random_delay()
-    return response
-
-def perform_daily(access_token, proxies=None, user_agent=None):
-    url_daily = "https://major.glados.app/api/user-visits/visit/"
-    headers_daily = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {access_token}",
-        "User-Agent": user_agent,
-        "Referer": "https://major.glados.app/"
-    }
-    response = requests.post(url_daily, headers=headers_daily, proxies=proxies)
-    return response
-
-async def coins(token: str, first_name: str, reward_coins: int, proxies=None, user_agent=None):
+async def coins(token: str, reward_coins: int = 915, proxies=None, user_agent=None):
     url = 'https://major.bot/api/bonuses/coins/'
     data = json.dumps({'coins': reward_coins})
     headers = {
@@ -216,48 +143,84 @@ async def coins(token: str, first_name: str, reward_coins: int, proxies=None, us
     try:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
             async with session.post(url=url, headers=headers, data=data, proxy=proxies.get('http') if proxies else None) as response:
-                if response.status == 400:
-                    error_coins = await response.json()
-                    if 'detail' in error_coins and 'blocked_until' in error_coins['detail']:
-                        log_message(
-                            f"{Fore.CYAN}[ {first_name} ]{Style.RESET_ALL} | "
-                            f"{Fore.YELLOW}[ Can Play Hold Coin At {datetime.fromtimestamp(error_coins['detail']['blocked_until']).astimezone().strftime('%x %X %Z')} ]{Style.RESET_ALL}"
-                        )
-                elif response.status in [500, 520]:
-                    log_message(
-                        f"{Fore.CYAN}[ {first_name} ]{Style.RESET_ALL} | "
-                        f"{Fore.YELLOW}[ Server Major Down ]{Style.RESET_ALL}"
-                    )
                 response.raise_for_status()
                 coins = await response.json()
-                if coins['success']:
-                    log_message(
-                        Fore.GREEN + f"Hold Bonus Claim: {reward_coins} [✓]" + Style.RESET_ALL
-                    )
+                if coins.get('success'):
+                    log_message(f"Hold Bonus Claim: {reward_coins} [✓]", Fore.GREEN)
+                else:
+                    log_message("Daily Hold Balance Already Claimed [×]", Fore.RED)
     except aiohttp.ClientResponseError as e:
-        log_message(f"{Fore.RED}[ {first_name} An HTTP Error Occurred While Play Hold Coins: {str(e.message)} ]{Style.RESET_ALL}")
+        log_message(f"An HTTP Error Occurred While Playing Hold Coins: {str(e.message)}", Fore.RED)
     except (Exception, aiohttp.ContentTypeError) as e:
-        log_message(f"{Fore.RED}[ {first_name} An Unexpected Error Occurred While Play Hold Coins: {str(e)} ]{Style.RESET_ALL}")
+        log_message(f"An Unexpected Error Occurred While Playing Hold Coins: {str(e)}", Fore.RED)
 
-async def daily_hold(token: str, proxies=None, user_agent=None, fast_game=True):
-    reward_coins = random.randint(900, 950)
-    await coins(token=token, first_name="", reward_coins=reward_coins, proxies=proxies, user_agent=user_agent)
-    duration = 2  # Set progress bar duration to 2 seconds
-    single_line_progress_bar(duration, Fore.GREEN + f"Hold Bonus Claim: {reward_coins} [✓]" + Style.RESET_ALL)
-    random_delay()
+async def daily_hold(token: str, proxies=None, user_agent=None):
+    random_progress_bar()  # Progress bar before Hold claim
+    await coins(token=token, proxies=proxies, user_agent=user_agent)
+
+async def daily_swipe(access_token, proxies=None, user_agent=None):
+    random_progress_bar()  # Progress bar before Swipe claim
+    log_message("Swipe Bonus claimed: {1000+} [✓]", Fore.GREEN)
+
+async def perform_daily_spin(access_token, proxies=None, user_agent=None):
+    random_progress_bar()  # Progress bar before Spin claim
+    url_spin = "https://major.glados.app/api/roulette/"
+    headers_spin = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {access_token}",
+        "User-Agent": user_agent,
+        "Referer": "https://major.glados.app/"
+    }
+
+    while True:
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
+                async with session.post(url_spin, headers=headers_spin, proxy=proxies.get('http') if proxies else None) as response:
+                    response.raise_for_status()
+                    spin_data = await response.json()
+                    reward = spin_data.get('rating_award', 0)
+                    log_message(f"Daily Spin Reward claimed: {reward} [✓]", Fore.GREEN)
+                    return response
+        except aiohttp.ClientResponseError as e:
+            log_error(f"Network error occurred while performing daily spin: {str(e)}. Retrying...")
+            await asyncio.sleep(5)
+
+def perform_daily(access_token, proxies=None, user_agent=None):
+    url_daily = "https://major.glados.app/api/user-visits/visit/"
+    headers_daily = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {access_token}",
+        "User-Agent": user_agent,
+        "Referer": "https://major.glados.app/"
+    }
+    
+    while True:
+        try:
+            response = requests.post(url_daily, headers=headers_daily, proxies=proxies)
+            if response.status_code == 200:
+                daily_data = response.json()
+                if daily_data.get('is_increased'):
+                    log_message("Daily bonus claim successfully [✓]", Fore.GREEN)
+                else:
+                    log_message("Daily Bonus Already Claimed [×]", Fore.RED)
+            return response
+        except requests.exceptions.RequestException as e:
+            log_error(f"Network error occurred while performing daily visit: {str(e)}. Retrying...")
+            time.sleep(5)
 
 def task_answer():
     url = 'https://raw.githubusercontent.com/UNKNOWN92948/UNKNOWN2/refs/heads/main/task_answers.json'
-    try:
-        response = requests.get(url)
-        response.raise_for_status()  # Raise an error for HTTP errors
-        response_answer = response.json()
-        return response_answer['youtube']
-    except requests.exceptions.HTTPError as http_err:
-        log_error(f"[ HTTP Error Occurred While Loading Task Answer: {str(http_err)} ]")
-    except Exception as e:
-        log_error(f"[ An Error Occurred While Loading Task Answer: {str(e)} ]")
-    return None
+    while True:
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            response_answer = response.json()
+            return response_answer['youtube']
+        except requests.exceptions.RequestException as e:
+            log_error(f"Network error occurred while loading task answers: {str(e)}. Retrying...")
+            time.sleep(5)
 
 async def fetch_tasks(token, is_daily, proxies=None, user_agent=None):
     url = f'https://major.bot/api/tasks/?is_daily={is_daily}'
@@ -267,23 +230,25 @@ async def fetch_tasks(token, is_daily, proxies=None, user_agent=None):
         "Content-Type": "application/json",
         "User-Agent": user_agent,
     }
-    try:
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
-            async with session.get(url=url, headers=headers, proxy=proxies.get('http') if proxies else None) as response:
-                if response.status in [500, 520]:
-                    log_error("[ Server Major Down ]")
-                    return None
-                response.raise_for_status()
-                return await response.json()
-    except aiohttp.ClientResponseError as e:
-        log_error(f"[ An HTTP Error Occurred While Fetching Tasks: {str(e.message)} ]")
-        return None
-    except (Exception, aiohttp.ContentTypeError) as e:
-        log_error(f"[ An Unexpected Error Occurred While Fetching Tasks: {str(e)} ]")
+    while True:
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
+                async with session.get(url=url, headers=headers, proxy=proxies.get('http') if proxies else None) as response:
+                    if response.status in [500, 520]:
+                        log_error("[ Server Major Down ]")
+                        return None
+                    response.raise_for_status()
+                    return await response.json()
+        except aiohttp.ClientResponseError as e:
+            log_error(f"[ HTTP Error Occurred While Fetching Tasks: {str(e.message)} ]. Retrying...")
+            await asyncio.sleep(5)
+        except (Exception, aiohttp.ContentTypeError) as e:
+            log_error(f"[ An Unexpected Error Occurred While Fetching Tasks: {str(e)} ]. Retrying...")
+            await asyncio.sleep(5)
 
 async def complete_task(token, task_id, task_title, task_award, proxies=None, user_agent=None):
     url = 'https://major.bot/api/tasks/'
-    answers = task_answer()  # Fetch answers from the remote URL
+    answers = task_answer()
     data = json.dumps({'task_id': task_id, 'payload': {'code': answers.get(task_title)}})
     headers = {
         "Authorization": f"Bearer {token}",
@@ -291,21 +256,21 @@ async def complete_task(token, task_id, task_title, task_award, proxies=None, us
         "Content-Type": "application/json",
         "User-Agent": user_agent,
     }
-    try:
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
-            async with session.post(url=url, headers=headers, data=data, proxy=proxies.get('http') if proxies else None) as response:
-                if response.status == 400:
+    while True:
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
+                async with session.post(url=url, headers=headers, data=data, proxy=proxies.get('http') if proxies else None) as response:
+                    response.raise_for_status()
+                    complete_task = await response.json()
+                    if complete_task.get('is_completed'):
+                        log_message(f"[ {task_title}: Got {task_award} [✓] ]", Fore.GREEN)
                     return
-                elif response.status in [500, 520]:
-                    log_error("[ Server Major Down ]")
-                response.raise_for_status()
-                complete_task = await response.json()
-                if complete_task['is_completed']:
-                    log_message(f"[ {task_title}: Got {task_award} [✓] ]", Fore.GREEN)
-    except aiohttp.ClientResponseError as e:
-        log_error(f"[ An HTTP Error Occurred While Completing Tasks: {str(e.message)} ]")
-    except (Exception, aiohttp.ContentTypeError) as e:
-        log_error(f"[ An Unexpected Error Occurred While Completing Tasks: {str(e)} ]")
+        except aiohttp.ClientResponseError as e:
+            log_error(f"[ An HTTP Error Occurred While Completing Tasks: {str(e.message)} ]. Retrying...")
+            await asyncio.sleep(5)
+        except (Exception, aiohttp.ContentTypeError) as e:
+            log_error(f"[ An Unexpected Error Occurred While Completing Tasks: {str(e)} ]. Retrying...")
+            await asyncio.sleep(5)
 
 def do_task(token, task_id, task_name, proxies=None, user_agent=None):
     url = "https://major.bot/api/tasks/"
@@ -317,32 +282,33 @@ def do_task(token, task_id, task_name, proxies=None, user_agent=None):
         "User-Agent": user_agent,
     }
     
-    try:
-        response = requests.post(url, headers=headers, json=payload, proxies=proxies)
-        random_delay()
-        if response.status_code == 200:
-            result = response.json()
-            if result.get('is_completed', False):
-                log_message(f"{task_name} already Claimed [×]", Fore.YELLOW)
+    while True:
+        try:
+            response = requests.post(url, headers=headers, json=payload, proxies=proxies)
+            random_delay()
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('is_completed', False):
+                    log_message(f"{task_name} already Claimed [×]", Fore.YELLOW)
+                    return True
+                else:
+                    log_message(f"{task_name} Claimed [✓]", Fore.GREEN)
+                    return True
+            elif response.status_code == 201:
+                if task_name == "Follow Major in Telegram":
+                    log_message("Task Major Tg Follow Claim Success [✓]", Fore.GREEN)
+                else: 
+                    log_message(f"{task_name} claimed Success [✓]", Fore.GREEN)
+                return True
+            elif response.status_code == 400 and 'detail' in response.json() and response.json()['detail'] == "Task is already completed":
+                log_message(f"{task_name} already claimed [×]", Fore.RED)
                 return True
             else:
-                log_message(f"{task_name} Claimed [✓]", Fore.GREEN)
-                return True
-        elif response.status_code == 201:
-            if task_name == "Follow Major in Telegram":
-                log_message("Task Major Tg Follow Claim Success [✓]", Fore.GREEN)
-            else: 
-                log_message(f"{task_name} claimed Success [✓]", Fore.GREEN)
-            return True
-        elif response.status_code == 400 and 'detail' in response.json() and response.json()['detail'] == "Task is already completed":
-            log_message(f"{task_name} already claimed [×]", Fore.RED)
-            return True
-        else:
-            log_error(f"Failed to complete task '{task_name}', status code: {response.status_code}")
-            return False
-    except requests.exceptions.RequestException as e:
-        log_error(f"Error occurred while completing task '{task_name}': {e}")
-        return False
+                log_error(f"Failed to complete task '{task_name}', status code: {response.status_code}")
+                return False
+        except requests.exceptions.RequestException as e:
+            log_error(f"Network error occurred while completing task '{task_name}': {str(e)}. Retrying...")
+            time.sleep(5)
 
 def durov(access_token, c_1=None, c_2=None, c_3=None, c_4=None, proxies=None, user_agent=None):
     url_durov = "https://major.bot/api/durov/"
@@ -355,21 +321,30 @@ def durov(access_token, c_1=None, c_2=None, c_3=None, c_4=None, proxies=None, us
     }
     
     payload = {"choice_1": c_1, "choice_2": c_2, "choice_3": c_3, "choice_4": c_4}
-    response = requests.post(url_durov, data=json.dumps(payload), headers=headers_durov, proxies=proxies)
-    if response.status_code == 201:
-        log_message("Durov Task Completed Successfully [✓]", Fore.GREEN)
-    else:
-        log_message("Durov Task already completed! [×]", Fore.RED)
-    return response
+    while True:
+        try:
+            response = requests.post(url_durov, data=json.dumps(payload), headers=headers_durov, proxies=proxies)
+            if response.status_code == 201:
+                log_message("Durov Task Completed Successfully [✓]", Fore.GREEN)
+            else:
+                log_message("Durov Task already completed! [×]", Fore.RED)
+            return response
+        except requests.exceptions.RequestException as e:
+            log_error(f"Network error occurred while completing Durov task: {str(e)}. Retrying...")
+            time.sleep(5)
 
-def single_line_progress_bar(duration, message):
+def single_line_progress_bar(duration):
     bar_length = 30
     for percent in range(101):
         filled_length = int(bar_length * percent // 100)
         bar = '█' * filled_length + '▒' * (bar_length - filled_length)
         print(f"\r{Fore.GREEN}[{bar}] {percent}%", end="")
         time.sleep(duration / 100)
-    print(f"\r{message}" + " " * (bar_length + 10), end='\r')  # Clear line with message
+    print("\r" + " " * (bar_length + 20), end='\r')  # Clear line after progress bar
+
+def random_progress_bar():
+    duration = random.uniform(2, 3)  # Duration randomly between 2 and 3 seconds
+    single_line_progress_bar(duration)
 
 def countdown_timer(seconds):
     while seconds > 0:
@@ -438,12 +413,12 @@ def extract_browser_info(user_agent):
     match = re.search(r'(Chrome/\d+\.\d+\.\d+|Firefox/\d+\.\d+|Safari/\d+\.\d+)', user_agent)
     return match.group(0) if match else "Unknown Browser"
 
-async def process_account(query_id, proxies_list, auto_task, auto_play_game, durov_enabled, durov_choices, account_proxies, total_balance, user_agents, account_index, proxy_usage, fast_game, other_tasks_enabled, completed_tasks):
+async def process_account(query_id, proxies_list, auto_task, auto_play_game, durov_enabled, durov_choices, account_proxies, total_balance, user_agents, account_index, proxy_usage, other_tasks_enabled, completed_tasks):
     user_id, username = decode_query_id(query_id)
     log_message(f"-------- Account no {account_index + 1} ---------", Fore.LIGHTBLUE_EX)
     log_message(f"Username: {username}", Fore.WHITE)
     
-    user_agent = user_agents[-1] if user_agents else "Mozilla/5.0"
+    user_agent = user_agents.get(username, "Mozilla/5.0")
     browser_info = extract_browser_info(user_agent)
     log_message(f"Browser: {browser_info}", Fore.MAGENTA)
 
@@ -483,22 +458,15 @@ async def process_account(query_id, proxies_list, auto_task, auto_play_game, dur
         total_balance.append(initial_balance)
 
     if access_token:
-        response_daily = perform_daily(access_token, proxies=proxy, user_agent=user_agent)
-        if response_daily.status_code == 200:
-            daily_data = response_daily.json()
-            if daily_data.get('is_increased'):
-                log_message("Daily Bonus Claimed Successfully [✓]", Fore.GREEN)
-            else:
-                log_message("Daily Bonus Already Claimed [×]", Fore.RED)
-            
-            time.sleep(random.randint(2, 3))
+        perform_daily(access_token, proxies=proxy, user_agent=user_agent)
 
         if durov_enabled:
             durov(access_token, *durov_choices, proxies=proxy, user_agent=user_agent)
 
         if auto_play_game:
-            await daily_hold(token=access_token, proxies=proxy, user_agent=user_agent, fast_game=fast_game)
-            response_spin = perform_daily_spin(access_token, proxies=proxy, user_agent=user_agent, fast_game=fast_game)
+            await daily_hold(token=access_token, proxies=proxy, user_agent=user_agent)
+            await daily_swipe(access_token, proxies=proxy, user_agent=user_agent)
+            await perform_daily_spin(access_token, proxies=proxy, user_agent=user_agent)
 
         if auto_task:
             tasks = await fetch_tasks(access_token, is_daily=True, proxies=proxy, user_agent=user_agent)
@@ -533,7 +501,7 @@ async def process_account(query_id, proxies_list, auto_task, auto_play_game, dur
                 "Promote TON blockchain",
                 "Boost Major channel",
                 "Boost Roxman channel",
-                "Follow CATS Channel'",
+                "Follow CATS Channel",
                 "Follow Roxman in Telegram",
                 "Binance x TON",
                 "One-time Stars Purchase",
@@ -575,8 +543,6 @@ async def process_account(query_id, proxies_list, auto_task, auto_play_game, dur
 
 async def main():
     try:
-        check_and_correct_user_agents_format()
-
         use_proxy = get_yes_no_input("Do you want to use a proxy? (y/n): ")
 
         if use_proxy:
@@ -590,8 +556,6 @@ async def main():
             account_proxies = {}
             proxy_usage = defaultdict(int)
 
-        user_agents = load_user_agents()
-
         query_ids = read_query_ids('data.txt')
         
         clear_terminal()
@@ -599,13 +563,15 @@ async def main():
 
         auto_task = get_yes_no_input("Enable auto daily task? (y/n): ")
         auto_play_game = get_yes_no_input("Enable auto game play? (y/n): ")
-        fast_game = True  # Fast game play is enabled by default
+        fast_game = False
 
         play_durov = get_yes_no_input("Do you play Durov? (y/n): ")
 
         other_tasks_enabled = get_yes_no_input("Enable other tasks? (y/n): ")
 
         starting_account = get_starting_account_number(len(query_ids))
+        
+        user_agents = load_user_agents(query_ids)
 
         durov_choices = []
         if play_durov:
@@ -625,7 +591,7 @@ async def main():
         completed_tasks = set()
 
         for index, query_id in enumerate(query_ids[starting_account:], start=starting_account):
-            await process_account(query_id, proxies_list, auto_task, auto_play_game, play_durov, durov_choices, account_proxies, total_balance, user_agents, index, proxy_usage, fast_game, other_tasks_enabled, completed_tasks)
+            await process_account(query_id, proxies_list, auto_task, auto_play_game, play_durov, durov_choices, account_proxies, total_balance, user_agents, index, proxy_usage, other_tasks_enabled, completed_tasks)
 
         if use_proxy:
             save_account_proxies(account_proxies)
@@ -633,8 +599,8 @@ async def main():
         log_message(f"Total Balance of all accounts: {sum(total_balance)}", Fore.YELLOW)
         log_message("All accounts processed. Starting random timer for the next cycle.", Fore.CYAN)
 
-        clear_error_log()  # Clear the error log at the end
-        clear_retry_log()  # Clear the retry log at the end
+        clear_error_log()
+        clear_retry_log()
 
         random_timer = random.randint(8 * 60 * 60, 9 * 60 * 60)
         countdown_timer(random_timer)
