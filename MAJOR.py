@@ -181,7 +181,7 @@ def perform_daily_spin(access_token, proxies=None, user_agent=None, fast_game=Tr
         spin_data = response.json()
         rating_award = spin_data.get("rating_award")
         duration = 2 if fast_game else 10
-        single_line_progress_bar(duration, Fore.GREEN + f"Daily Spin Reward: {rating_award} [✓]" + Style.RESET_ALL)  # Adjusted duration and message
+        single_line_progress_bar(duration, Fore.GREEN + f"Daily Spin Reward: {rating_award} [✓]" + Style.RESET_ALL)
     elif response.status_code == 400:
         log_message("Daily Spin Already Claimed [×]", Fore.RED)
     else:
@@ -202,47 +202,49 @@ def perform_daily(access_token, proxies=None, user_agent=None):
     response = requests.post(url_daily, headers=headers_daily, proxies=proxies)
     return response
 
-def daily_hold(access_token, proxies=None, user_agent=None, fast_game=True):
-    coins = random.randint(900, 950)
-    payload = {"coins": coins} 
-    url_hold = "https://major.glados.app/api/bonuses/coins/"
-    headers_hold = {
+async def coins(token: str, first_name: str, reward_coins: int, proxies=None, user_agent=None):
+    url = 'https://major.bot/api/bonuses/coins/'
+    data = json.dumps({'coins': reward_coins})
+    headers = {
+        "Authorization": f"Bearer {token}",
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {access_token}",
         "User-Agent": user_agent,
-        "Referer": "https://major.glados.app/"
+        "Content-Length": str(len(data)),
+        "Origin": "https://major.bot"
     }
-    response = requests.post(url_hold, data=json.dumps(payload), headers=headers_hold, proxies=proxies)
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
+            async with session.post(url=url, headers=headers, data=data, proxy=proxies.get('http') if proxies else None) as response:
+                if response.status == 400:
+                    error_coins = await response.json()
+                    if 'detail' in error_coins and 'blocked_until' in error_coins['detail']:
+                        log_message(
+                            f"{Fore.CYAN}[ {first_name} ]{Style.RESET_ALL} | "
+                            f"{Fore.YELLOW}[ Can Play Hold Coin At {datetime.fromtimestamp(error_coins['detail']['blocked_until']).astimezone().strftime('%x %X %Z')} ]{Style.RESET_ALL}"
+                        )
+                elif response.status in [500, 520]:
+                    log_message(
+                        f"{Fore.CYAN}[ {first_name} ]{Style.RESET_ALL} | "
+                        f"{Fore.YELLOW}[ Server Major Down ]{Style.RESET_ALL}"
+                    )
+                response.raise_for_status()
+                coins = await response.json()
+                if coins['success']:
+                    log_message(
+                        Fore.GREEN + f"Hold Bonus Claim: {reward_coins} [✓]" + Style.RESET_ALL
+                    )
+    except aiohttp.ClientResponseError as e:
+        log_message(f"{Fore.RED}[ {first_name} An HTTP Error Occurred While Play Hold Coins: {str(e.message)} ]{Style.RESET_ALL}")
+    except (Exception, aiohttp.ContentTypeError) as e:
+        log_message(f"{Fore.RED}[ {first_name} An Unexpected Error Occurred While Play Hold Coins: {str(e)} ]{Style.RESET_ALL}")
+
+async def daily_hold(token: str, proxies=None, user_agent=None, fast_game=True):
+    reward_coins = random.randint(900, 950)
+    await coins(token=token, first_name="", reward_coins=reward_coins, proxies=proxies, user_agent=user_agent)
     duration = 2 if fast_game else 60
-    if response.status_code == 201:
-        single_line_progress_bar(duration, Fore.GREEN + "Hold Bonus Claim successfully [✓]" + Style.RESET_ALL)
-    elif response.status_code == 400:
-        log_message("Daily Hold Balance Already Claimed [×]", Fore.RED)
-
+    single_line_progress_bar(duration, Fore.GREEN + f"Hold Bonus Claim: {reward_coins} [✓]" + Style.RESET_ALL)
     random_delay()
-    return response
-
-def daily_swipe(access_token, proxies=None, user_agent=None, fast_game=True):
-    coins = random.randint(1000, 1300)
-    payload = {"coins": coins} 
-    url_swipe = "https://major.glados.app/api/swipe_coin/"
-    headers_swipe = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {access_token}",
-        "User-Agent": user_agent,
-        "Referer": "https://major.glados.app/"
-    }
-    response = requests.post(url_swipe, data=json.dumps(payload), headers=headers_swipe, proxies=proxies)
-    duration = 2 if fast_game else 60
-    if response.status_code == 201:
-        single_line_progress_bar(duration, Fore.GREEN + "Swipe Bonus Claim successfully [✓]" + Style.RESET_ALL)
-    elif response.status_code == 400:
-        log_message("Daily Swipe Balance Already Claimed [×]", Fore.RED)
-
-    random_delay()
-    return response
 
 def task_answer():
     url = 'https://raw.githubusercontent.com/UNKNOWN92948/UNKNOWN2/refs/heads/main/task_answers.json'
@@ -436,7 +438,7 @@ def extract_browser_info(user_agent):
     match = re.search(r'(Chrome/\d+\.\d+\.\d+|Firefox/\d+\.\d+|Safari/\d+\.\d+)', user_agent)
     return match.group(0) if match else "Unknown Browser"
 
-def process_account(query_id, proxies_list, auto_task, auto_play_game, durov_enabled, durov_choices, account_proxies, total_balance, user_agents, account_index, proxy_usage, fast_game, other_tasks_enabled, completed_tasks):
+async def process_account(query_id, proxies_list, auto_task, auto_play_game, durov_enabled, durov_choices, account_proxies, total_balance, user_agents, account_index, proxy_usage, fast_game, other_tasks_enabled, completed_tasks):
     user_id, username = decode_query_id(query_id)
     log_message(f"-------- Account no {account_index + 1} ---------", Fore.LIGHTBLUE_EX)
     log_message(f"Username: {username}", Fore.WHITE)
@@ -495,12 +497,11 @@ def process_account(query_id, proxies_list, auto_task, auto_play_game, durov_ena
             durov(access_token, *durov_choices, proxies=proxy, user_agent=user_agent)
 
         if auto_play_game:
-            response_hold = daily_hold(access_token, proxies=proxy, user_agent=user_agent, fast_game=fast_game)
-            response_swipe = daily_swipe(access_token, proxies=proxy, user_agent=user_agent, fast_game=fast_game)
+            await daily_hold(token=access_token, proxies=proxy, user_agent=user_agent, fast_game=fast_game)
             response_spin = perform_daily_spin(access_token, proxies=proxy, user_agent=user_agent, fast_game=fast_game)
 
         if auto_task:
-            tasks = asyncio.run(fetch_tasks(access_token, is_daily=True, proxies=proxy, user_agent=user_agent))
+            tasks = await fetch_tasks(access_token, is_daily=True, proxies=proxy, user_agent=user_agent)
             specific_tasks = {
                 29: "Follow Major in Telegram",
                 16: "Share in Telegram Stories",
@@ -548,7 +549,7 @@ def process_account(query_id, proxies_list, auto_task, auto_play_game, durov_ena
             }
 
             for type in ['true', 'false']:
-                tasks = asyncio.run(fetch_tasks(access_token, is_daily=type, proxies=proxy, user_agent=user_agent))
+                tasks = await fetch_tasks(access_token, is_daily=type, proxies=proxy, user_agent=user_agent)
                 if tasks is not None:
                     for task in tasks:
                         if task['title'] in excluded_tasks:
@@ -558,7 +559,7 @@ def process_account(query_id, proxies_list, auto_task, auto_play_game, durov_ena
                         if not task['is_completed'] and task['id'] not in completed_tasks:
                             retries = 0
                             while retries < 3:
-                                task_result = asyncio.run(complete_task(access_token, task_id=task['id'], task_title=task['title'], task_award=task['award'], proxies=proxy, user_agent=user_agent))
+                                task_result = await complete_task(access_token, task_id=task['id'], task_title=task['title'], task_award=task['award'], proxies=proxy, user_agent=user_agent)
                                 if task_result:
                                     completed_tasks.add(task['id'])
                                     break
@@ -572,7 +573,7 @@ def process_account(query_id, proxies_list, auto_task, auto_play_game, durov_ena
         total_balance.append(final_balance)
     log_message("")
 
-def main():
+async def main():
     try:
         check_and_correct_user_agents_format()
 
@@ -624,7 +625,7 @@ def main():
         completed_tasks = set()
 
         for index, query_id in enumerate(query_ids[starting_account:], start=starting_account):
-            process_account(query_id, proxies_list, auto_task, auto_play_game, play_durov, durov_choices, account_proxies, total_balance, user_agents, index, proxy_usage, fast_game, other_tasks_enabled, completed_tasks)
+            await process_account(query_id, proxies_list, auto_task, auto_play_game, play_durov, durov_choices, account_proxies, total_balance, user_agents, index, proxy_usage, fast_game, other_tasks_enabled, completed_tasks)
 
         if use_proxy:
             save_account_proxies(account_proxies)
@@ -644,4 +645,4 @@ def main():
         graceful_exit()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
