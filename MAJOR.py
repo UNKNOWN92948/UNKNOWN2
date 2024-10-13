@@ -242,7 +242,7 @@ async def coins(token: str, first_name: str, reward_coins: int, proxies=None, us
 async def daily_hold(token: str, proxies=None, user_agent=None, fast_game=True):
     reward_coins = random.randint(900, 950)
     await coins(token=token, first_name="", reward_coins=reward_coins, proxies=proxies, user_agent=user_agent)
-    duration = 2 if fast_game else 60
+    duration = 2  # Set progress bar duration to 2 seconds
     single_line_progress_bar(duration, Fore.GREEN + f"Hold Bonus Claim: {reward_coins} [✓]" + Style.RESET_ALL)
     random_delay()
 
