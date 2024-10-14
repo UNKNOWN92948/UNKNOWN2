@@ -479,16 +479,17 @@ def process_account(query_id, proxies_list, auto_task, auto_play_game, durov_ena
 
     proxy = account_proxies.get(query_id)
     if proxies_list:
-        if not proxy or proxy_usage[proxy['http']] >= 4:
+        if not proxy or proxy_usage.get(proxy['http'], 0) >= 4:
             proxy = select_random_proxy(proxies_list, proxy_usage)
             if proxy:
                 account_proxies[query_id] = proxy
                 proxy_usage[proxy['http']] += 1
 
-        proxy = {
-            'http': proxy['http'],
-            'https': proxy['http']
-        }
+        if proxy:
+            proxy = {
+                'http': proxy['http'],
+                'https': proxy['http']
+            }
     else:
         proxy = None
 
