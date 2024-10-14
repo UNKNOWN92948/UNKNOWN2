@@ -130,15 +130,18 @@ def check_user_details(user_id, access_token, proxies=None):
             time.sleep(5)
 
 async def coins(token: str, reward_coins: int = 915, proxies=None, user_agent=None):
-    single_line_progress_bar(2, f"{Fore.GREEN}Hold Bonus Claim: {reward_coins} [✓]{Style.RESET_ALL}")
+    print("Completing... Hold")
+    single_line_progress_bar(2, f"{Fore.GREEN + Style.BRIGHT}Hold Bonus Claim: {reward_coins} [✓]{Style.RESET_ALL}")
 
 async def daily_hold(token: str, proxies=None, user_agent=None):
     await coins(token=token, proxies=proxies, user_agent=user_agent)
 
 async def daily_swipe(access_token, proxies=None, user_agent=None):
-    single_line_progress_bar(2, f"{Fore.GREEN}Swipe Bonus claimed: 1000+ [✓]{Style.RESET_ALL}")
+    print("Completing... Swipe")
+    single_line_progress_bar(2, f"{Fore.GREEN + Style.BRIGHT}Swipe Bonus claimed: 1000+ [✓]{Style.RESET_ALL}")
 
 async def perform_daily_spin(access_token, proxies=None, user_agent=None):
+    print("Completing... Spin")
     url_spin = "https://major.glados.app/api/roulette/"
     headers_spin = {
         "Accept": "application/json",
@@ -155,12 +158,21 @@ async def perform_daily_spin(access_token, proxies=None, user_agent=None):
                     response.raise_for_status()
                     spin_data = await response.json()
                     reward = spin_data.get('rating_award', 0)
-                    single_line_progress_bar(3, f"{Fore.GREEN}Daily Spin Reward claimed: {reward} [✓]{Style.RESET_ALL}")
+                    single_line_progress_bar(3, f"{Fore.GREEN + Style.BRIGHT}Daily Spin Reward claimed: {reward} [✓]{Style.RESET_ALL}")
                     return response
         except aiohttp.ClientResponseError as e:
             log_error(f"Network error occurred while performing daily spin: {str(e)}. Retrying...")
             await asyncio.sleep(5)
 
+def random_delay_after_bonus():
+    delay = random.uniform(1, 2)
+    start_time = time.time()
+    while time.time() - start_time < delay:
+        remaining_time = delay - (time.time() - start_time)
+        print(f"\rWaiting for {remaining_time:.2f} seconds...", end="")
+        time.sleep(0.1)
+    print("\r" + " " * 30, end="\r")  # Clear the line after the delay ends
+ 
 def perform_daily(access_token, proxies=None, user_agent=None):
     url_daily = "https://major.glados.app/api/user-visits/visit/"
     headers_daily = {
@@ -180,6 +192,9 @@ def perform_daily(access_token, proxies=None, user_agent=None):
                     log_message("Daily Bonus Claimed successfully [✓]", Fore.GREEN + Style.BRIGHT)
                 else:
                     log_message("Daily Bonus Already Claimed [×]", Fore.RED + Style.BRIGHT)
+                
+                random_delay_after_bonus()
+                
             return response
         except requests.exceptions.RequestException as e:
             log_error(f"Network error occurred while performing daily visit: {str(e)}. Retrying...")
@@ -380,6 +395,19 @@ def get_starting_account_number(total_accounts):
         except KeyboardInterrupt:
             graceful_exit()
 
+def get_ending_account_number(start_number, total_accounts):
+    while True:
+        try:
+            end_number = int(input(f"Enter the ending account number ({start_number + 1} to {total_accounts}): ").strip())
+            if start_number < end_number <= total_accounts:
+                return end_number
+            else:
+                print(f"Please enter a number between {start_number + 1} and {total_accounts}.")
+        except ValueError:
+            print("Invalid input. Please enter a number.")
+        except KeyboardInterrupt:
+            graceful_exit()
+
 def extract_browser_info(user_agent):
     match = re.search(r'(Chrome/\d+\.\d+\.\d+|Firefox/\d+\.\d+|Safari/\d+\.\d+)', user_agent)
     return match.group(0) if match else "Unknown Browser"
@@ -551,6 +579,8 @@ async def main():
         starting_account = get_starting_account_number(len(query_ids))
         
         ending_account = len(query_ids)
+        if not fast_game:
+            ending_account = get_ending_account_number(starting_account, len(query_ids))
 
         user_agents = load_user_agents(query_ids)
 
