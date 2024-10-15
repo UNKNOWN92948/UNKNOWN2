@@ -52,7 +52,7 @@ def load_account_proxies():
     if os.path.exists('account_proxies.json'):
         with open('account_proxies.json', 'r') as file:
             return json.load(file)
-    return {}
+    return {}  # Return an empty dictionary if the file does not exist.
 
 def save_account_proxies(account_proxies):
     with open('account_proxies.json', 'w') as file:
@@ -81,7 +81,7 @@ def load_user_agents(query_ids):
         return generate_user_agents(query_ids)
 
 def select_random_proxy(proxies, proxy_usage):
-    available_proxies = [proxy for proxy in proxies if proxy_usage[proxy['http']] < 4]
+    available_proxies = [proxy for proxy in proxies if proxy_usage[proxy['http']] < 2]
     if available_proxies:
         return random.choice(available_proxies)
     return None
@@ -104,14 +104,19 @@ def login(query_id, proxies=None, user_agent=None):
         "Referer": "https://major.glados.app/"
     }
 
-    while True:
+    retry_attempts = 0
+
+    while retry_attempts < 3:
         try:
             response = requests.post(url_login, headers=headers, data=json.dumps(payload), proxies=proxies)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
-            log_retry(f"Login failed for query_id {query_id}: Network error - {str(e)}. Retrying...")
+            retry_attempts += 1
+            log_retry(f"Login failed for query_id {query_id}: Network error - {str(e)}. Retry ({retry_attempts}/3)")
             time.sleep(5)
+
+    return None  # If login fails after 3 attempts, return None
 
 def get_access_token(data):
     return data.get('access_token')
@@ -477,30 +482,38 @@ def process_account(query_id, proxies_list, auto_task, auto_play_game, durov_ena
         log_error(f"Failed to decode user ID for account {username}. Skipping...")
         return
 
-    proxy = account_proxies.get(query_id)
-    if proxies_list:
-        if not proxy or proxy_usage.get(proxy['http'], 0) >= 4:
-            proxy = select_random_proxy(proxies_list, proxy_usage)
+    # Check if the username is already associated with a proxy
+    proxy = account_proxies.get(username)
+    retry_attempts = 0
+
+    while retry_attempts < 3:
+        if proxies_list:
+            # If there's no proxy or it's not working, select a new one
+            if not proxy or proxy_usage.get(proxy['http'], 0) >= 2 or not is_proxy_working(proxy):
+                proxy = select_random_proxy(proxies_list, proxy_usage)
+                if proxy:
+                    account_proxies[username] = proxy  # Bind the new proxy to the username
+                    proxy_usage[proxy['http']] += 1
+                    save_account_proxies(account_proxies)  # Save immediately after assigning a new proxy
+
             if proxy:
-                account_proxies[query_id] = proxy
-                proxy_usage[proxy['http']] += 1
+                proxy = {
+                    'http': proxy['http'],
+                    'https': proxy['http']
+                }
+        else:
+            proxy = None
 
-        if proxy:
-            proxy = {
-                'http': proxy['http'],
-                'https': proxy['http']
-            }
-    else:
-        proxy = None
+        login_data = login(query_id, proxies=proxy, user_agent=user_agent)
 
-    login_data = login(query_id, proxies=proxy, user_agent=user_agent)
+        if login_data:
+            break
+
+        retry_attempts += 1
 
     if not login_data:
-        log_error(f"Login failed after retries for {username}.")
+        log_error(f"Login failed after 3 attempts for {username}. Skipping account...")
         return
-
-    if proxy:
-        account_proxies[query_id] = proxy
 
     access_token = get_access_token(login_data)
     initial_balance = check_user_details(user_id, access_token, proxies=proxy)
@@ -608,7 +621,7 @@ def main():
 
         if use_proxy:
             proxies_list = load_proxies()
-            account_proxies = load_account_proxies()
+            account_proxies = load_account_proxies()  # Load existing proxies or initialize empty
             proxy_usage = defaultdict(int)
             for proxy in account_proxies.values():
                 proxy_usage[proxy['http']] += 1
@@ -657,9 +670,6 @@ def main():
 
         for index, query_id in enumerate(query_ids[starting_account:ending_account], start=starting_account):
             process_account(query_id, proxies_list, auto_task, auto_play_game, play_durov, durov_choices, account_proxies, total_balance, user_agents, index, proxy_usage, other_tasks_enabled, completed_tasks)
-
-        if use_proxy:
-            save_account_proxies(account_proxies)
 
         log_message(f"Total Balance of all accounts: {sum(total_balance)}", Fore.YELLOW)
         log_message("All accounts processed. Starting random timer for the next cycle.", Fore.CYAN)
