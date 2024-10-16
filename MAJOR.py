@@ -405,6 +405,10 @@ def random_delay():
     delay = random.randint(1, 2)
     countdown_timer(delay)
 
+def random_live_wait():
+    delay = random.randint(3, 5)
+    countdown_timer(delay)
+
 def graceful_exit():
     print("\n" + Fore.YELLOW + "Exiting gracefully... Please wait.")
     time.sleep(2)
@@ -669,6 +673,7 @@ def main():
         completed_tasks = set()
 
         for index, query_id in enumerate(query_ids[starting_account:ending_account], start=starting_account):
+            random_live_wait()  # Add a random wait time before processing each account
             process_account(query_id, proxies_list, auto_task, auto_play_game, play_durov, durov_choices, account_proxies, total_balance, user_agents, index, proxy_usage, other_tasks_enabled, completed_tasks)
 
         log_message(f"Total Balance of all accounts: {sum(total_balance)}", Fore.YELLOW)
