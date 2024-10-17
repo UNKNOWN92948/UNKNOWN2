@@ -1,11 +1,14 @@
 import sys
+import asyncio
+
+if sys.platform.startswith('win'):
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 import time
 import random
 import requests
 import urllib.parse
 import json
 import os
-import asyncio
 import aiohttp
 from colorama import init, Fore, Style
 from collections import defaultdict
