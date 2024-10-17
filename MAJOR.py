@@ -55,7 +55,7 @@ def load_account_proxies():
     if os.path.exists('account_proxies.json'):
         with open('account_proxies.json', 'r') as file:
             return json.load(file)
-    return {}
+    return {}  # Return an empty dictionary if the file does not exist.
 
 def save_account_proxies(account_proxies):
     with open('account_proxies.json', 'w') as file:
@@ -84,7 +84,7 @@ def load_user_agents(query_ids):
         return generate_user_agents(query_ids)
 
 def select_random_proxy(proxies, proxy_usage):
-    available_proxies = [proxy for proxy in proxies if proxy_usage[proxy['http']] < 4]
+    available_proxies = [proxy for proxy in proxies if proxy_usage[proxy['http']] < 2]
     if available_proxies:
         return random.choice(available_proxies)
     return None
@@ -107,14 +107,19 @@ def login(query_id, proxies=None, user_agent=None):
         "Referer": "https://major.glados.app/"
     }
 
-    while True:
+    retry_attempts = 0
+
+    while retry_attempts < 3:
         try:
             response = requests.post(url_login, headers=headers, data=json.dumps(payload), proxies=proxies)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
-            log_retry(f"Login failed for query_id {query_id}: Network error - {str(e)}. Retrying...")
+            retry_attempts += 1
+            log_retry(f"Login failed for query_id {query_id}: Network error - {str(e)}. Retry ({retry_attempts}/3)")
             time.sleep(5)
+
+    return None  # If login fails after 3 attempts, return None
 
 def get_access_token(data):
     return data.get('access_token')
@@ -240,7 +245,7 @@ async def daily_swipe(access_token, proxies=None, user_agent=None):
                 log_message("Daily Swipe Balance Already Claimed [×]", Fore.RED)
                 return response
             
-            single_line_progress_bar(2, "Completing Swipe...")  # Progress bar before the actual claim
+            single_line_progress_bar(2, "Completing Swipe...")
 
             if response.status_code == 201:
                 single_line_progress_bar(2, Fore.GREEN + "Swipe Bonus claimed successfully [✓]" + Style.RESET_ALL)
@@ -403,6 +408,10 @@ def random_delay():
     delay = random.randint(1, 2)
     countdown_timer(delay)
 
+def random_live_wait():
+    delay = random.randint(3, 5)
+    countdown_timer(delay)
+
 def graceful_exit():
     print("\n" + Fore.YELLOW + "Exiting gracefully... Please wait.")
     time.sleep(2)
@@ -480,29 +489,38 @@ def process_account(query_id, proxies_list, auto_task, auto_play_game, durov_ena
         log_error(f"Failed to decode user ID for account {username}. Skipping...")
         return
 
-    proxy = account_proxies.get(query_id)
-    if proxies_list:
-        if not proxy or proxy_usage[proxy['http']] >= 4:
-            proxy = select_random_proxy(proxies_list, proxy_usage)
+    # Check if the username is already associated with a proxy
+    proxy = account_proxies.get(username)
+    retry_attempts = 0
+
+    while retry_attempts < 3:
+        if proxies_list:
+            # If there's no proxy or it's not working, select a new one
+            if not proxy or proxy_usage.get(proxy['http'], 0) >= 2 or not is_proxy_working(proxy):
+                proxy = select_random_proxy(proxies_list, proxy_usage)
+                if proxy:
+                    account_proxies[username] = proxy  # Bind the new proxy to the username
+                    proxy_usage[proxy['http']] += 1
+                    save_account_proxies(account_proxies)  # Save immediately after assigning a new proxy
+
             if proxy:
-                account_proxies[query_id] = proxy
-                proxy_usage[proxy['http']] += 1
+                proxy = {
+                    'http': proxy['http'],
+                    'https': proxy['http']
+                }
+        else:
+            proxy = None
 
-        proxy = {
-            'http': proxy['http'],
-            'https': proxy['http']
-        }
-    else:
-        proxy = None
+        login_data = login(query_id, proxies=proxy, user_agent=user_agent)
 
-    login_data = login(query_id, proxies=proxy, user_agent=user_agent)
+        if login_data:
+            break
+
+        retry_attempts += 1
 
     if not login_data:
-        log_error(f"Login failed after retries for {username}.")
+        log_error(f"Login failed after 3 attempts for {username}. Skipping account...")
         return
-
-    if proxy:
-        account_proxies[query_id] = proxy
 
     access_token = get_access_token(login_data)
     initial_balance = check_user_details(user_id, access_token, proxies=proxy)
@@ -526,13 +544,8 @@ def process_account(query_id, proxies_list, auto_task, auto_play_game, durov_ena
             durov(access_token, *durov_choices, proxies=proxy, user_agent=user_agent)
 
         if auto_play_game:
-            # Execute daily_hold and wait for it to finish
             asyncio.run(daily_hold(token=access_token, proxies=proxy, user_agent=user_agent))
-            # Execute daily_swipe and check if it's already claimed
-            swipe_response = asyncio.run(daily_swipe(access_token, proxies=proxy, user_agent=user_agent))
-            if swipe_response.status_code != 400:
-                single_line_progress_bar(60, "Completing Swipe...")  # Only show if not already claimed
-            # Finally, perform the daily spin
+            asyncio.run(daily_swipe(access_token, proxies=proxy, user_agent=user_agent))
             perform_daily_spin(access_token, proxies=proxy, user_agent=user_agent)
 
         if auto_task:
@@ -609,17 +622,13 @@ def process_account(query_id, proxies_list, auto_task, auto_play_game, durov_ena
         total_balance.append(final_balance)
     log_message("")
 
-    # Add a random wait time of 3-5 seconds after processing each account with countdown
-    delay = random.randint(3, 5)
-    countdown_timer(delay)
-
 def main():
     try:
         use_proxy = get_yes_no_input("Do you want to use a proxy? (y/n): ")
 
         if use_proxy:
             proxies_list = load_proxies()
-            account_proxies = load_account_proxies()
+            account_proxies = load_account_proxies()  # Load existing proxies or initialize empty
             proxy_usage = defaultdict(int)
             for proxy in account_proxies.values():
                 proxy_usage[proxy['http']] += 1
@@ -667,10 +676,8 @@ def main():
         completed_tasks = set()
 
         for index, query_id in enumerate(query_ids[starting_account:ending_account], start=starting_account):
+            random_live_wait()  # Add a random wait time before processing each account
             process_account(query_id, proxies_list, auto_task, auto_play_game, play_durov, durov_choices, account_proxies, total_balance, user_agents, index, proxy_usage, other_tasks_enabled, completed_tasks)
-
-        if use_proxy:
-            save_account_proxies(account_proxies)
 
         log_message(f"Total Balance of all accounts: {sum(total_balance)}", Fore.YELLOW)
         log_message("All accounts processed. Starting random timer for the next cycle.", Fore.CYAN)
