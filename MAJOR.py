@@ -158,7 +158,7 @@ def perform_daily_spin(access_token, proxies=None, user_agent=None):
                 log_message("Daily Spin Already Claimed [×]", Fore.RED)
                 return response
 
-            single_line_progress_bar(10, "Completing Spin...")
+            single_line_progress_bar(2, "Completing Spin...")
 
             if response.status_code == 201:
                 log_message("Daily Spin Reward claimed successfully [✓]", Fore.GREEN)
@@ -218,7 +218,7 @@ async def coins(token: str, reward_coins: int, proxies=None, user_agent=None):
 
 async def daily_hold(token: str, proxies=None, user_agent=None):
     reward_coins = 915  # Fixed coin amount
-    single_line_progress_bar(60, "Completing Hold...")  # Progress bar before the actual claim
+    single_line_progress_bar(2, "Completing Hold...")  # Progress bar before the actual claim
     await coins(token=token, reward_coins=reward_coins, proxies=proxies, user_agent=user_agent)
 
 async def daily_swipe(access_token, proxies=None, user_agent=None):
@@ -240,7 +240,7 @@ async def daily_swipe(access_token, proxies=None, user_agent=None):
                 log_message("Daily Swipe Balance Already Claimed [×]", Fore.RED)
                 return response
             
-            single_line_progress_bar(60, "Completing Swipe...")  # Progress bar before the actual claim
+            single_line_progress_bar(2, "Completing Swipe...")  # Progress bar before the actual claim
 
             if response.status_code == 201:
                 single_line_progress_bar(2, Fore.GREEN + "Swipe Bonus claimed successfully [✓]" + Style.RESET_ALL)
