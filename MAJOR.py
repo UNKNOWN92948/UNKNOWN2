@@ -194,6 +194,17 @@ def perform_daily(access_token, proxies=None, user_agent=None):
             log_error(f"Network error occurred while performing daily visit: {str(e)}. Retrying...")
             time.sleep(5)
 
+def task_answer():
+    url = 'https://raw.githubusercontent.com/UNKNOWN92948/UNKNOWN2/refs/heads/main/task_answers.json'
+    while True:
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            response_answer = response.json()
+            return response_answer['youtube']
+        except requests.exceptions.RequestException as e:
+            log_error(f"Network error occurred while loading task answers: {str(e)}. Retrying...")
+
 async def fetch_tasks(token, is_daily, proxies=None, user_agent=None):
     url = f'https://major.bot/api/tasks/?is_daily={is_daily}'
     headers = {
