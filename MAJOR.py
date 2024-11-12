@@ -194,80 +194,6 @@ def perform_daily(access_token, proxies=None, user_agent=None):
             log_error(f"Network error occurred while performing daily visit: {str(e)}. Retrying...")
             time.sleep(5)
 
-async def coins(token: str, reward_coins: int, proxies=None, user_agent=None):
-    url = 'https://major.bot/api/bonuses/coins/'
-    data = json.dumps({'coins': reward_coins})
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": user_agent,
-        "Content-Length": str(len(data)),
-        "Origin": "https://major.bot"
-    }
-    try:
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
-            async with session.post(url=url, headers=headers, data=data, proxy=proxies.get('http') if proxies else None) as response:
-                if response.status == 400:
-                    log_message("Daily Hold Balance Already Claimed [×]", Fore.RED)
-                elif response.status in [500, 520]:
-                    log_message("Server Major Down", Fore.YELLOW)
-                response.raise_for_status()
-                coins = await response.json()
-                if coins['success']:
-                    log_message(f"Hold Bonus Claim: {reward_coins} [✓]", Fore.GREEN)
-    except aiohttp.ClientResponseError:
-        pass  # Suppress HTTP error messages for hold coins
-    except (Exception, aiohttp.ContentTypeError) as e:
-        log_message(f"An Unexpected Error Occurred While Playing Hold Coins: {str(e)}", Fore.RED)
-
-async def daily_hold(token: str, proxies=None, user_agent=None):
-    reward_coins = 915  # Fixed coin amount
-    single_line_progress_bar(2, "Completing Hold...")  # Progress bar before the actual claim
-    await coins(token=token, reward_coins=reward_coins, proxies=proxies, user_agent=user_agent)
-
-async def daily_swipe(access_token, proxies=None, user_agent=None):
-    coins = random.randint(1000, 1300)
-    payload = {"coins": coins} 
-    url_swipe = "https://major.glados.app/api/swipe_coin/"
-    headers_swipe = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {access_token}",
-        "User-Agent": user_agent,
-        "Referer": "https://major.glados.app/"
-    }
-
-    while True:
-        try:
-            response = requests.post(url_swipe, data=json.dumps(payload), headers=headers_swipe, proxies=proxies)
-            if response.status_code == 400:
-                log_message("Daily Swipe Balance Already Claimed [×]", Fore.RED)
-                return response
-            
-            single_line_progress_bar(2, "Completing Swipe...")
-
-            if response.status_code == 201:
-                single_line_progress_bar(2, Fore.GREEN + "Swipe Bonus claimed successfully [✓]" + Style.RESET_ALL)
-
-            random_delay()
-            return response
-        except requests.exceptions.RequestException as e:
-            log_error(f"Network error occurred while performing daily swipe: {str(e)}. Retrying...")
-            time.sleep(5)
-
-def task_answer():
-    url = 'https://raw.githubusercontent.com/UNKNOWN92948/UNKNOWN2/refs/heads/main/task_answers.json'
-    while True:
-        try:
-            response = requests.get(url)
-            response.raise_for_status()
-            response_answer = response.json()
-            return response_answer['youtube']
-        except requests.exceptions.RequestException as e:
-            log_error(f"Network error occurred while loading task answers: {str(e)}. Retrying...")
-            time.sleep(5)
-
 async def fetch_tasks(token, is_daily, proxies=None, user_agent=None):
     url = f'https://major.bot/api/tasks/?is_daily={is_daily}'
     headers = {
@@ -544,8 +470,6 @@ def process_account(query_id, proxies_list, auto_task, auto_play_game, durov_ena
             durov(access_token, *durov_choices, proxies=proxy, user_agent=user_agent)
 
         if auto_play_game:
-            asyncio.run(daily_hold(token=access_token, proxies=proxy, user_agent=user_agent))
-            asyncio.run(daily_swipe(access_token, proxies=proxy, user_agent=user_agent))
             perform_daily_spin(access_token, proxies=proxy, user_agent=user_agent)
 
         if auto_task:
